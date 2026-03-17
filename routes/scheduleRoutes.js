@@ -10,6 +10,7 @@ const router = express.Router();
 
 const finalPointTableDirectory = path.join(__dirname, '..', 'uploads', 'point-tables');
 fs.mkdirSync(finalPointTableDirectory, { recursive: true });
+const EVENT_TIME_ZONE = process.env.EVENT_TIME_ZONE || 'Asia/Kolkata';
 
 const upload = multer({
   storage: multer.diskStorage({
@@ -53,17 +54,24 @@ const normalizeArrayField = (value) => {
     .filter(Boolean);
 };
 
-const parseEventDateTime = (eventDate, eventTime) => {
-  if (!eventDate || !eventTime) {
-    return null;
-  }
+const toZonedParts = (date, timeZone) => {
+  const formatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
 
-  const dateTime = new Date(`${eventDate}T${eventTime}:00`);
-  if (Number.isNaN(dateTime.getTime())) {
-    return null;
-  }
+  const parts = formatter.formatToParts(date);
+  const pick = (type) => parts.find((part) => part.type === type)?.value || '';
 
-  return dateTime;
+  return {
+    dateKey: `${pick('year')}-${pick('month')}-${pick('day')}`,
+    timeKey: `${pick('hour')}:${pick('minute')}`,
+  };
 };
 
 const removeLocalFile = (filePath) => {
@@ -83,23 +91,27 @@ const getComputedStatus = (schedule, now = new Date()) => {
     return 'completed';
   }
 
-  const todayKey = toDateKey(now);
-  const eventKey = toDateKey(schedule.eventDate);
-  const eventDateTime = parseEventDateTime(schedule.eventDate, schedule.eventTime);
+  const eventKey = String(schedule.eventDate || '').trim();
+  const eventTime = String(schedule.eventTime || '').trim();
+  const zonedNow = toZonedParts(now, EVENT_TIME_ZONE);
 
-  if (!eventKey || !eventDateTime) {
-    return 'scheduled';
+  const hasLiveData =
+    (Array.isArray(schedule.liveUpdates) && schedule.liveUpdates.length > 0) ||
+    (Array.isArray(schedule.playing4) && schedule.playing4.length > 0);
+
+  if (!eventKey || !eventTime) {
+    return hasLiveData ? 'ongoing' : 'upcoming';
   }
 
-  if (eventKey > todayKey) {
-    return 'scheduled';
+  if (eventKey > zonedNow.dateKey) {
+    return 'upcoming';
   }
 
-  if (eventKey < todayKey) {
-    return 'expired';
+  if (eventKey < zonedNow.dateKey) {
+    return hasLiveData ? 'ongoing' : 'expired';
   }
 
-  if (now.getTime() < eventDateTime.getTime()) {
+  if (eventTime > zonedNow.timeKey) {
     return 'upcoming';
   }
 
@@ -108,6 +120,10 @@ const getComputedStatus = (schedule, now = new Date()) => {
 
 const toClientSchedule = (schedule, now = new Date()) => {
   const computedStatus = getComputedStatus(schedule, now);
+  const hasLiveData =
+    (Array.isArray(schedule.liveUpdates) && schedule.liveUpdates.length > 0) ||
+    (Array.isArray(schedule.playing4) && schedule.playing4.length > 0);
+  const exposeLiveData = computedStatus === 'ongoing' || hasLiveData;
 
   return {
     _id: schedule._id,
@@ -116,9 +132,9 @@ const toClientSchedule = (schedule, now = new Date()) => {
     organizers: schedule.organizers || [],
     opponent: schedule.opponent || '',
     livestreamUrl: schedule.livestreamUrl || '',
-    liveUpdatesPath: computedStatus === 'ongoing' ? schedule.liveUpdatesPath || '' : '',
-    playing4: schedule.playing4 || [],
-    liveUpdates: computedStatus === 'ongoing' ? schedule.liveUpdates || [] : [],
+    liveUpdatesPath: exposeLiveData ? schedule.liveUpdatesPath || '' : '',
+    playing4: exposeLiveData ? schedule.playing4 || [] : [],
+    liveUpdates: exposeLiveData ? schedule.liveUpdates || [] : [],
     finalPointTable: schedule.finalPointTable?.filePath
       ? {
           filePath: schedule.finalPointTable.filePath,
@@ -170,7 +186,11 @@ router.get('/liveupdates/:slug', async (req, res) => {
     }
 
     const output = toClientSchedule(schedule, new Date());
-    if (output.status !== 'ongoing') {
+    const hasLiveData =
+      (Array.isArray(output.liveUpdates) && output.liveUpdates.length > 0) ||
+      (Array.isArray(output.playing4) && output.playing4.length > 0);
+
+    if (output.status !== 'ongoing' && !hasLiveData) {
       return res.status(404).json({ success: false, message: 'Live updates not available for this tournament' });
     }
 
