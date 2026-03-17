@@ -6,10 +6,12 @@ const sharp = require('sharp');
 const Player = require('../models/Player');
 const PlayerAccount = require('../models/PlayerAccount');
 const sseHub = require('../utils/sseHub');
+const { uploadToGridFS, downloadFromGridFS, deleteFromGridFS } = require('../utils/gridfsUtil');
 const { authenticateToken, authorizePermissions } = require('../middleware/auth');
 
 const router = express.Router();
 
+// Still create local directory for fallback
 const uploadDirectory = path.join(__dirname, '..', 'uploads', 'players');
 fs.mkdirSync(uploadDirectory, { recursive: true });
 
@@ -26,18 +28,6 @@ const upload = multer({
   },
 });
 
-const buildVariantPath = (imagePath, variant) => {
-  if (!imagePath || !imagePath.endsWith('.webp')) {
-    return '';
-  }
-
-  const variantPath = imagePath.replace('.webp', `-${variant}.webp`);
-  const filename = variantPath.replace('/uploads/players/', '');
-  const absolutePath = path.join(uploadDirectory, filename);
-
-  return fs.existsSync(absolutePath) ? variantPath : '';
-};
-
 const toClientPlayer = (player) => ({
   _id: player._id,
   name: player.name,
@@ -46,8 +36,8 @@ const toClientPlayer = (player) => ({
   instagramUrl: player.instagramUrl,
   youtubeUrl: player.youtubeUrl,
   imagePath: player.imagePath,
-  imagePathMd: buildVariantPath(player.imagePath, 'md'),
-  imagePathSm: buildVariantPath(player.imagePath, 'sm'),
+  imagePathMd: player.imagePathMd || '',
+  imagePathSm: player.imagePathSm || '',
   photo: player.imagePath,
   isLive: player.isLive,
   liveUrl: player.liveUrl,
@@ -56,35 +46,36 @@ const toClientPlayer = (player) => ({
   updatedAt: player.updatedAt,
 });
 
-const removeLocalImage = (imagePath) => {
-  if (!imagePath || !imagePath.startsWith('/uploads/players/')) {
-    return;
+const deletePlayerImages = async (player) => {
+  if (player.imageGridFsId) {
+    try {
+      await deleteFromGridFS(Player.collection.conn, player.imageGridFsId);
+    } catch (err) {
+      console.error('Failed to delete GridFS image:', err);
+    }
   }
 
-  const filename = imagePath.replace('/uploads/players/', '');
-  const absolutePath = path.join(uploadDirectory, filename);
-  const absolutePathMd = absolutePath.replace('.webp', '-md.webp');
-  const absolutePathSm = absolutePath.replace('.webp', '-sm.webp');
-  if (fs.existsSync(absolutePath)) {
-    fs.unlinkSync(absolutePath);
-  }
-  if (fs.existsSync(absolutePathMd)) {
-    fs.unlinkSync(absolutePathMd);
-  }
-  if (fs.existsSync(absolutePathSm)) {
-    fs.unlinkSync(absolutePathSm);
+  // Fallback: remove local files if they exist
+  if (player.imagePath && player.imagePath.startsWith('/uploads/players/')) {
+    const filename = player.imagePath.replace('/uploads/players/', '');
+    const absolutePath = path.join(uploadDirectory, filename);
+    const absolutePathMd = absolutePath.replace('.webp', '-md.webp');
+    const absolutePathSm = absolutePath.replace('.webp', '-sm.webp');
+    try {
+      if (fs.existsSync(absolutePath)) fs.unlinkSync(absolutePath);
+      if (fs.existsSync(absolutePathMd)) fs.unlinkSync(absolutePathMd);
+      if (fs.existsSync(absolutePathSm)) fs.unlinkSync(absolutePathSm);
+    } catch (err) {
+      console.error('Failed to delete local image:', err);
+    }
   }
 };
 
-const saveOptimizedPlayerImage = async (file) => {
-  const safeName = `${Date.now()}-${Math.round(Math.random() * 1e9)}.webp`;
-  const absolutePath = path.join(uploadDirectory, safeName);
-  const absolutePathMd = absolutePath.replace('.webp', '-md.webp');
-  const absolutePathSm = absolutePath.replace('.webp', '-sm.webp');
-
+const saveOptimizedPlayerImage = async (file, conn) => {
   const image = sharp(file.buffer).rotate();
 
-  await image
+  // Generate main image
+  const mainBuffer = await image
     .clone()
     .resize(960, 1200, {
       fit: 'cover',
@@ -92,9 +83,10 @@ const saveOptimizedPlayerImage = async (file) => {
       withoutEnlargement: true,
     })
     .webp({ quality: 78, effort: 4 })
-    .toFile(absolutePath);
+    .toBuffer();
 
-  await image
+  // Generate medium variant
+  const mdBuffer = await image
     .clone()
     .resize(640, 800, {
       fit: 'cover',
@@ -102,9 +94,10 @@ const saveOptimizedPlayerImage = async (file) => {
       withoutEnlargement: true,
     })
     .webp({ quality: 74, effort: 4 })
-    .toFile(absolutePathMd);
+    .toBuffer();
 
-  await image
+  // Generate small variant
+  const smBuffer = await image
     .clone()
     .resize(360, 480, {
       fit: 'cover',
@@ -112,10 +105,42 @@ const saveOptimizedPlayerImage = async (file) => {
       withoutEnlargement: true,
     })
     .webp({ quality: 68, effort: 4 })
-    .toFile(absolutePathSm);
+    .toBuffer();
 
-  return `/uploads/players/${safeName}`;
+  // Upload all variants to GridFS
+  const timestamp = Date.now();
+  const random = Math.round(Math.random() * 1e9);
+
+  const mainId = await uploadToGridFS(conn, `player-${timestamp}-${random}.webp`, mainBuffer, {
+    variant: 'main',
+  });
+
+  const mdId = await uploadToGridFS(conn, `player-${timestamp}-${random}-md.webp`, mdBuffer, {
+    variant: 'md',
+  });
+
+  const smId = await uploadToGridFS(conn, `player-${timestamp}-${random}-sm.webp`, smBuffer, {
+    variant: 'sm',
+  });
+
+  return {
+    mainId,
+    mdId,
+    smId,
+  };
 };
+
+// Endpoint to serve images from GridFS
+router.get('/image/:fileId', async (req, res) => {
+  try {
+    const fileBuffer = await downloadFromGridFS(Player.collection.conn, req.params.fileId);
+    res.type('image/webp');
+    res.set('Cache-Control', 'public, max-age=86400, immutable');
+    res.send(fileBuffer);
+  } catch (error) {
+    res.status(404).json({ success: false, message: 'Image not found' });
+  }
+});
 
 router.get('/', async (_req, res) => {
   try {
@@ -133,14 +158,12 @@ router.get('/', async (_req, res) => {
 });
 
 router.post('/', authenticateToken, authorizePermissions('players'), upload.single('image'), async (req, res) => {
-  let imagePath = '';
-
   try {
     if (!req.file) {
       return res.status(400).json({ success: false, message: 'Player image is required' });
     }
 
-    imagePath = await saveOptimizedPlayerImage(req.file);
+    const { mainId, mdId, smId } = await saveOptimizedPlayerImage(req.file, Player.collection.conn);
 
     const player = await Player.create({
       name: req.body.name,
@@ -148,7 +171,12 @@ router.post('/', authenticateToken, authorizePermissions('players'), upload.sing
       description: req.body.description,
       instagramUrl: req.body.instagramUrl || '',
       youtubeUrl: req.body.youtubeUrl || '',
-      imagePath,
+      imagePath: `/api/players/image/${mainId}`,
+      imagePathMd: `/api/players/image/${mdId}`,
+      imagePathSm: `/api/players/image/${smId}`,
+      imageGridFsId: mainId,
+      imageGridFsIdMd: mdId,
+      imageGridFsIdSm: smId,
       liveUrl: req.body.liveUrl || '',
       rank: req.body.rank ? Number(req.body.rank) : null,
     });
@@ -156,44 +184,44 @@ router.post('/', authenticateToken, authorizePermissions('players'), upload.sing
     res.status(201).json({ success: true, data: toClientPlayer(player) });
     sseHub.broadcast('players');
   } catch (error) {
-    removeLocalImage(imagePath);
     res.status(400).json({ success: false, message: error.message });
   }
 });
 
 router.put('/:id', authenticateToken, authorizePermissions('players'), upload.single('image'), async (req, res) => {
-  let nextImagePath = '';
-
   try {
     const existingPlayer = await Player.findById(req.params.id);
     if (!existingPlayer) {
       return res.status(404).json({ success: false, message: 'Player not found' });
     }
 
-    const previousImagePath = existingPlayer.imagePath;
-    nextImagePath = req.file ? await saveOptimizedPlayerImage(req.file) : existingPlayer.imagePath;
+    if (req.file) {
+      // Delete old images from GridFS
+      await deletePlayerImages(existingPlayer);
+
+      // Upload new images
+      const { mainId, mdId, smId } = await saveOptimizedPlayerImage(req.file, Player.collection.conn);
+      existingPlayer.imagePath = `/api/players/image/${mainId}`;
+      existingPlayer.imagePathMd = `/api/players/image/${mdId}`;
+      existingPlayer.imagePathSm = `/api/players/image/${smId}`;
+      existingPlayer.imageGridFsId = mainId;
+      existingPlayer.imageGridFsIdMd = mdId;
+      existingPlayer.imageGridFsIdSm = smId;
+    }
 
     existingPlayer.name = req.body.name;
     existingPlayer.role = req.body.role;
     existingPlayer.description = req.body.description;
     existingPlayer.instagramUrl = req.body.instagramUrl || '';
     existingPlayer.youtubeUrl = req.body.youtubeUrl || '';
-    existingPlayer.imagePath = nextImagePath;
     existingPlayer.liveUrl = req.body.liveUrl || '';
     existingPlayer.rank = req.body.rank ? Number(req.body.rank) : null;
 
     const updatedPlayer = await existingPlayer.save();
 
-    if (req.file && previousImagePath !== nextImagePath) {
-      removeLocalImage(previousImagePath);
-    }
-
     res.json({ success: true, data: toClientPlayer(updatedPlayer) });
     sseHub.broadcast('players');
   } catch (error) {
-    if (req.file && nextImagePath) {
-      removeLocalImage(nextImagePath);
-    }
     res.status(400).json({ success: false, message: error.message });
   }
 });
@@ -242,7 +270,7 @@ router.delete('/:id', authenticateToken, authorizePermissions('players'), async 
       return res.status(404).json({ success: false, message: 'Player not found' });
     }
 
-    removeLocalImage(player.imagePath);
+    await deletePlayerImages(player);
     await PlayerAccount.deleteOne({ playerId: player._id });
 
     res.json({ success: true, message: 'Player deleted' });
