@@ -32,6 +32,28 @@ const playerSchema = new mongoose.Schema(
       required: true,
       trim: true,
     },
+    imagePathMd: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+    imagePathSm: {
+      type: String,
+      default: '',
+      trim: true,
+    },
+    imageGridFsId: {
+      type: String,
+      default: null,
+    },
+    imageGridFsIdMd: {
+      type: String,
+      default: null,
+    },
+    imageGridFsIdSm: {
+      type: String,
+      default: null,
+    },
     isLive: {
       type: Boolean,
       default: false,
