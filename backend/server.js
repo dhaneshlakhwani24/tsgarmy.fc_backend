@@ -57,7 +57,19 @@ app.use(
     crossOriginResourcePolicy: false,
   })
 );
-app.use(compression({ threshold: 1024, level: Number(process.env.COMPRESSION_LEVEL || 6) }));
+app.use(
+  compression({
+    threshold: 1024,
+    level: Number(process.env.COMPRESSION_LEVEL || 6),
+    filter: (req, res) => {
+      if (req.path === '/api/events') {
+        return false;
+      }
+
+      return compression.filter(req, res);
+    },
+  })
+);
 
 const readApiLimiter = rateLimit({
   windowMs: 60 * 1000,
@@ -141,19 +153,26 @@ app.use('/api/feedback', feedbackRoutes);
 
 app.get('/api/events', (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
-  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
   res.setHeader('Connection', 'keep-alive');
   res.flushHeaders();
 
+  const send = (payload) => {
+    res.write(payload);
+    if (typeof res.flush === 'function') {
+      res.flush();
+    }
+  };
+
   if (!sseHub.addClient(res)) {
-    res.write('event: error\ndata: {"message":"SSE capacity reached"}\n\n');
+    send('event: error\ndata: {"message":"SSE capacity reached"}\n\n');
     res.end();
     return;
   }
 
-  res.write('event: connected\ndata: {}\n\n');
+  send('retry: 5000\nevent: connected\ndata: {}\n\n');
 
-  const heartbeat = setInterval(() => res.write(':ping\n\n'), 25000);
+  const heartbeat = setInterval(() => send(':ping\n\n'), 25000);
   req.on('close', () => {
     clearInterval(heartbeat);
     sseHub.removeClient(res);

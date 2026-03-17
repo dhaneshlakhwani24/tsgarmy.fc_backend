@@ -275,13 +275,43 @@ function ScheduleManagerPage({ authUser, onLogout, canAccess }) {
 
   useEffect(() => {
     let sse = null
-    try {
-      sse = new EventSource(`${API_URL}/api/events`)
-      sse.addEventListener('schedules', loadSchedules)
-      sse.onerror = () => sse?.close()
-    } catch {}
-    return () => sse?.close()
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+    let reconnectTimer = null
+    let reconnectAttempts = 0
+    const maxReconnectAttempts = 10
+    const reconnectDelay = (attempt) => Math.min(1000 * Math.pow(1.5, attempt), 30000)
+
+    const connectSSE = () => {
+      if (reconnectAttempts >= maxReconnectAttempts) {
+        return
+      }
+
+      try {
+        sse = new EventSource(`${API_URL}/api/events`)
+        sse.addEventListener('schedules', loadSchedules)
+        sse.onopen = () => {
+          reconnectAttempts = 0
+        }
+        sse.onerror = () => {
+          sse?.close()
+          sse = null
+          reconnectAttempts += 1
+          reconnectTimer = window.setTimeout(connectSSE, reconnectDelay(reconnectAttempts))
+        }
+      } catch {
+        reconnectAttempts += 1
+        reconnectTimer = window.setTimeout(connectSSE, reconnectDelay(reconnectAttempts))
+      }
+    }
+
+    connectSSE()
+
+    return () => {
+      if (reconnectTimer) {
+        window.clearTimeout(reconnectTimer)
+      }
+      sse?.close()
+    }
+  }, [])
 
   const handleChange = (event) => {
     setForm((prev) => ({ ...prev, [event.target.name]: event.target.value }))

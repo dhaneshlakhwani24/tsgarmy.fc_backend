@@ -23,6 +23,9 @@ const broadcast = (resource) => {
       }
 
       client.write(`event: ${resource}\ndata: {}\n\n`);
+      if (typeof client.flush === 'function') {
+        client.flush();
+      }
     } catch {
       staleClients.push(client);
     }
