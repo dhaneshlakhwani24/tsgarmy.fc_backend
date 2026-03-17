@@ -6,20 +6,23 @@ import { Toaster } from 'react-hot-toast'
 import './index.css'
 import App from './App.jsx'
 
-// Initialize Sentry
-Sentry.init({
-  dsn: import.meta.env.VITE_SENTRY_DSN || '',
-  environment: import.meta.env.MODE,
-  tracesSampleRate: 1.0,
-  integrations: [
-    new Sentry.Replay({
-      maskAllText: true,
-      blockAllMedia: true,
-    }),
-  ],
-})
+// Initialize Sentry only if DSN is provided
+const sentryDsn = import.meta.env.VITE_SENTRY_DSN?.trim()
+if (sentryDsn) {
+  Sentry.init({
+    dsn: sentryDsn,
+    environment: import.meta.env.MODE,
+    tracesSampleRate: 1.0,
+    integrations: [
+      new Sentry.Replay({
+        maskAllText: true,
+        blockAllMedia: true,
+      }),
+    ],
+  })
+}
 
-const SentryApp = Sentry.withProfiler(App)
+const SentryApp = sentryDsn ? Sentry.withProfiler(App) : App
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
