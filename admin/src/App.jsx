@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Navigate, NavLink, Route, Routes } from 'react-router-dom'
 import axios from 'axios'
+import toast from 'react-hot-toast'
 import './App.css'
 
 const API_URL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:5000' : window.location.origin)
@@ -296,7 +297,7 @@ function ScheduleManagerPage({ authUser, onLogout, canAccess }) {
 
     const eventTime = to24HourTime(form)
     if (!eventTime) {
-      alert('Select a valid time (hour, minute, AM/PM).')
+      toast.error('Select a valid time (hour, minute, AM/PM).')
       return
     }
 
@@ -308,14 +309,19 @@ function ScheduleManagerPage({ authUser, onLogout, canAccess }) {
       eventTime,
     }
 
-    if (editingId) {
-      await axios.put(`${API_URL}/api/schedules/${editingId}`, payload)
-    } else {
-      await axios.post(`${API_URL}/api/schedules`, payload)
+    try {
+      if (editingId) {
+        await axios.put(`${API_URL}/api/schedules/${editingId}`, payload)
+        toast.success('Schedule updated successfully')
+      } else {
+        await axios.post(`${API_URL}/api/schedules`, payload)
+        toast.success('Schedule created successfully')
+      }
+      resetForm()
+      loadSchedules()
+    } catch (error) {
+      toast.error(error?.response?.data?.message || error.message || 'Failed to save schedule')
     }
-
-    resetForm()
-    loadSchedules()
   }
 
   const handleEdit = (schedule) => {
@@ -397,43 +403,57 @@ function ScheduleManagerPage({ authUser, onLogout, canAccess }) {
       return
     }
 
-    await axios.patch(`${API_URL}/api/schedules/${activeLiveScheduleId}/live-updates`, {
-      playing4: liveForm.playing4,
-      liveUpdates: liveForm.liveUpdates.map((row, index) => ({
-        ...row,
-        matchNumber: Number(row.matchNumber || index + 1),
-        kills: Number(row.kills || 0),
-        points: Number(row.points || 0),
-        totalPoints: Number(row.totalPoints || 0),
-      })),
-    })
-
-    await loadSchedules()
+    try {
+      await axios.patch(`${API_URL}/api/schedules/${activeLiveScheduleId}/live-updates`, {
+        playing4: liveForm.playing4,
+        liveUpdates: liveForm.liveUpdates.map((row, index) => ({
+          ...row,
+          matchNumber: Number(row.matchNumber || index + 1),
+          kills: Number(row.kills || 0),
+          points: Number(row.points || 0),
+          totalPoints: Number(row.totalPoints || 0),
+        })),
+      })
+      toast.success('Live updates saved')
+      await loadSchedules()
+    } catch (error) {
+      toast.error(error?.response?.data?.message || error.message || 'Failed to save live updates')
+    }
   }
 
   const uploadFinalPointTable = async () => {
     if (!activeLiveScheduleId || !pointTableFile) {
+      toast.error('Please select a file first')
       return
     }
 
-    const payload = new FormData()
-    payload.append('file', pointTableFile)
-    await axios.post(`${API_URL}/api/schedules/${activeLiveScheduleId}/final-point-table`, payload, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    })
-
-    setPointTableFile(null)
-    setActiveLiveScheduleId('')
-    setLiveForm({ playing4: '', liveUpdates: [] })
-    await loadSchedules()
+    try {
+      const payload = new FormData()
+      payload.append('file', pointTableFile)
+      await axios.post(`${API_URL}/api/schedules/${activeLiveScheduleId}/final-point-table`, payload, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+      toast.success('Point table uploaded and tournament completed')
+      setPointTableFile(null)
+      setActiveLiveScheduleId('')
+      setLiveForm({ playing4: '', liveUpdates: [] })
+      await loadSchedules()
+    } catch (error) {
+      toast.error(error?.response?.data?.message || error.message || 'Failed to upload point table')
+    }
   }
 
   const handleDelete = async (id) => {
-    await axios.delete(`${API_URL}/api/schedules/${id}`)
-    if (editingId === id) {
-      resetForm()
+    try {
+      await axios.delete(`${API_URL}/api/schedules/${id}`)
+      toast.success('Schedule deleted')
+      if (editingId === id) {
+        resetForm()
+      }
+      loadSchedules()
+    } catch (error) {
+      toast.error(error?.response?.data?.message || error.message || 'Failed to delete schedule')
     }
-    loadSchedules()
   }
 
   return (
@@ -704,21 +724,27 @@ function PlayersManagerPage({ authUser, onLogout, canAccess }) {
     }
 
     if (!editingId && !imageFile) {
+      toast.error('New players require a profile image')
       return
     }
 
-    if (editingId) {
-      await axios.put(`${API_URL}/api/players/${editingId}`, payload, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      })
-    } else {
-      await axios.post(`${API_URL}/api/players`, payload, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      })
+    try {
+      if (editingId) {
+        await axios.put(`${API_URL}/api/players/${editingId}`, payload, {
+          headers: { 'Content-Type': 'multipart/form-data' },
+        })
+        toast.success('Player updated successfully')
+      } else {
+        await axios.post(`${API_URL}/api/players`, payload, {
+          headers: { 'Content-Type': 'multipart/form-data' },
+        })
+        toast.success('Player added successfully')
+      }
+      resetForm()
+      loadPlayers()
+    } catch (error) {
+      toast.error(error?.response?.data?.message || error.message || 'Failed to save player')
     }
-
-    resetForm()
-    loadPlayers()
   }
 
   const handleEdit = (player) => {
@@ -734,19 +760,25 @@ function PlayersManagerPage({ authUser, onLogout, canAccess }) {
   }
 
   const handleDelete = async (id) => {
-    await axios.delete(`${API_URL}/api/players/${id}`)
-    if (editingId === id) {
-      resetForm()
+    try {
+      await axios.delete(`${API_URL}/api/players/${id}`)
+      toast.success('Player deleted')
+      if (editingId === id) {
+        resetForm()
+      }
+      loadPlayers()
+    } catch (error) {
+      toast.error(error?.response?.data?.message || error.message || 'Failed to delete player')
     }
-    loadPlayers()
   }
 
   const handleRankChange = async (id, rank) => {
     try {
       await axios.patch(`${API_URL}/api/players/${id}/rank`, { rank })
+      toast.success('Rank updated')
       await loadPlayers()
-    } catch (err) {
-      alert(`Rank update failed: ${err?.response?.data?.message || err.message}`)
+    } catch (error) {
+      toast.error(error?.response?.data?.message || error.message || 'Failed to update rank')
     }
   }
 
@@ -754,9 +786,10 @@ function PlayersManagerPage({ authUser, onLogout, canAccess }) {
     if (player.isLive) {
       try {
         await axios.patch(`${API_URL}/api/players/${player._id}/live`)
+        toast.success('Live status updated')
         await loadPlayers()
-      } catch (err) {
-        alert(`Failed: ${err?.response?.data?.message || err.message}`)
+      } catch (error) {
+        toast.error(error?.response?.data?.message || error.message || 'Failed to toggle live')
       }
     } else {
       setLivePrompt({ open: true, playerId: player._id, url: '' })
@@ -768,9 +801,10 @@ function PlayersManagerPage({ authUser, onLogout, canAccess }) {
     setLivePrompt({ open: false, playerId: null, url: '' })
     try {
       await axios.patch(`${API_URL}/api/players/${playerId}/live`, { liveUrl: useUrl ? url : '' })
+      toast.success('Live URL updated')
       await loadPlayers()
-    } catch (err) {
-      alert(`Live toggle failed: ${err?.response?.data?.message || err.message}`)
+    } catch (error) {
+      toast.error(error?.response?.data?.message || error.message || 'Failed to update live')
     }
   }
 
@@ -1021,14 +1055,19 @@ function AchievementsManagerPage({ authUser, onLogout, canAccess }) {
   const handleSubmit = async (event) => {
     event.preventDefault()
 
-    if (editingId) {
-      await axios.put(`${API_URL}/api/achievements/${editingId}`, form)
-    } else {
-      await axios.post(`${API_URL}/api/achievements`, form)
+    try {
+      if (editingId) {
+        await axios.put(`${API_URL}/api/achievements/${editingId}`, form)
+        toast.success('Achievement updated')
+      } else {
+        await axios.post(`${API_URL}/api/achievements`, form)
+        toast.success('Achievement added')
+      }
+      resetForm()
+      loadAchievements()
+    } catch (error) {
+      toast.error(error?.response?.data?.message || error.message || 'Failed to save achievement')
     }
-
-    resetForm()
-    loadAchievements()
   }
 
   const handleEdit = (achievement) => {
@@ -1042,11 +1081,16 @@ function AchievementsManagerPage({ authUser, onLogout, canAccess }) {
   }
 
   const handleDelete = async (id) => {
-    await axios.delete(`${API_URL}/api/achievements/${id}`)
-    if (editingId === id) {
-      resetForm()
+    try {
+      await axios.delete(`${API_URL}/api/achievements/${id}`)
+      toast.success('Achievement deleted')
+      if (editingId === id) {
+        resetForm()
+      }
+      loadAchievements()
+    } catch (error) {
+      toast.error(error?.response?.data?.message || error.message || 'Failed to delete achievement')
     }
-    loadAchievements()
   }
 
   return (
@@ -1348,16 +1392,26 @@ function AdminUsersPage({ authUser, onLogout, canAccess }) {
 
   const createAdmin = async (event) => {
     event.preventDefault()
-    await axios.post(`${API_URL}/api/auth/admins`, form)
-    setForm({ username: '', password: '', permissions: [] })
-    await loadAdmins()
+    try {
+      await axios.post(`${API_URL}/api/auth/admins`, form)
+      toast.success('Admin created')
+      setForm({ username: '', password: '', permissions: [] })
+      await loadAdmins()
+    } catch (error) {
+      toast.error(error?.response?.data?.message || error.message || 'Failed to create admin')
+    }
   }
 
   const toggleActive = async (admin) => {
-    await axios.patch(`${API_URL}/api/auth/admins/${admin.id}`, {
-      isActive: !admin.isActive,
-    })
-    await loadAdmins()
+    try {
+      await axios.patch(`${API_URL}/api/auth/admins/${admin.id}`, {
+        isActive: !admin.isActive,
+      })
+      toast.success(`Admin ${admin.isActive ? 'deactivated' : 'activated'}`)
+      await loadAdmins()
+    } catch (error) {
+      toast.error(error?.response?.data?.message || error.message || 'Failed to update admin')
+    }
   }
 
   const resetPassword = async (admin) => {
@@ -1366,8 +1420,12 @@ function AdminUsersPage({ authUser, onLogout, canAccess }) {
       return
     }
 
-    await axios.patch(`${API_URL}/api/auth/admins/${admin.id}`, { password: nextPassword })
-    alert('Password updated')
+    try {
+      await axios.patch(`${API_URL}/api/auth/admins/${admin.id}`, { password: nextPassword })
+      toast.success('Password updated')
+    } catch (error) {
+      toast.error(error?.response?.data?.message || error.message || 'Failed to update password')
+    }
   }
 
   const updatePermissions = async (admin, permission) => {
@@ -1376,8 +1434,13 @@ function AdminUsersPage({ authUser, onLogout, canAccess }) {
       ? admin.permissions.filter((item) => item !== permission)
       : [...(admin.permissions || []), permission]
 
-    await axios.patch(`${API_URL}/api/auth/admins/${admin.id}`, { permissions: nextPermissions })
-    await loadAdmins()
+    try {
+      await axios.patch(`${API_URL}/api/auth/admins/${admin.id}`, { permissions: nextPermissions })
+      toast.success('Permissions updated')
+      await loadAdmins()
+    } catch (error) {
+      toast.error(error?.response?.data?.message || error.message || 'Failed to update permissions')
+    }
   }
 
   return (
@@ -1546,6 +1609,7 @@ function ProfilePage({ authUser, onLogout, canAccess, onUserUpdated }) {
   const uploadProfilePhoto = async (event) => {
     event.preventDefault()
     if (!selectedFile) {
+      toast.error('Please select a file')
       return
     }
 
@@ -1558,9 +1622,9 @@ function ProfilePage({ authUser, onLogout, canAccess, onUserUpdated }) {
       })
       onUserUpdated(response.data.user)
       setSelectedFile(null)
-      alert('Profile photo updated')
+      toast.success('Profile photo updated')
     } catch (error) {
-      alert(error?.response?.data?.message || 'Failed to update profile photo')
+      toast.error(error?.response?.data?.message || error.message || 'Failed to update profile photo')
     } finally {
       setSubmitting(false)
     }
@@ -1871,17 +1935,26 @@ function UserFeedbackPage({ authUser, onLogout, canAccess }) {
 
   const saveConfig = async (event) => {
     event.preventDefault()
-    await axios.patch(`${API_URL}/api/feedback/config`, {
-      enabled: Boolean(configForm.enabled),
-      maxSubmissions: Number(configForm.maxSubmissions || 0),
-    })
-    await loadConfig()
-    alert('Feedback settings updated')
+    try {
+      await axios.patch(`${API_URL}/api/feedback/config`, {
+        enabled: Boolean(configForm.enabled),
+        maxSubmissions: Number(configForm.maxSubmissions || 0),
+      })
+      await loadConfig()
+      toast.success('Feedback settings updated')
+    } catch (error) {
+      toast.error(error?.response?.data?.message || error.message || 'Failed to update settings')
+    }
   }
 
   const deleteFeedback = async (id) => {
-    await axios.delete(`${API_URL}/api/feedback/${id}`)
-    await loadFeedback()
+    try {
+      await axios.delete(`${API_URL}/api/feedback/${id}`)
+      toast.success('Feedback deleted')
+      await loadFeedback()
+    } catch (error) {
+      toast.error(error?.response?.data?.message || error.message || 'Failed to delete feedback')
+    }
   }
 
   return (
@@ -2098,7 +2171,7 @@ function App() {
     }
 
     if (isLive && !String(liveUrl || '').trim()) {
-      alert('Please add stream link when live is on.')
+      toast.error('Please add stream link when live is on.')
       return
     }
 
@@ -2117,13 +2190,13 @@ function App() {
       const nextPlayer = response.data.player
       setPlayerProfile(nextPlayer)
       saveStoredPlayerAuth(playerToken, playerAccount, nextPlayer)
-      alert('Profile updated')
+      toast.success('Profile updated')
     } catch (error) {
       if (error?.response?.status === 401) {
         await handlePlayerLogout()
         return
       }
-      alert(error?.response?.data?.message || 'Failed to update profile')
+      toast.error(error?.response?.data?.message || error.message || 'Failed to update profile')
     } finally {
       setSavingPlayerProfile(false)
     }
