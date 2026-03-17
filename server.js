@@ -81,7 +81,7 @@ app.use((req, res, next) => {
   }
 
   if (req.method === 'GET' && req.path.startsWith('/api/')) {
-    res.setHeader('Cache-Control', 'public, max-age=30, stale-while-revalidate=120');
+    res.setHeader('Cache-Control', 'public, max-age=5, stale-while-revalidate=10');
   }
 
   next();
