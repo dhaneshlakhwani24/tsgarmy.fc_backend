@@ -610,8 +610,9 @@ function HomePage({
                             target="_blank"
                             rel="noreferrer"
                             aria-label={`${player.name} Instagram`}
-                            onClick={(event) => event.stopPropagation()}
+                            onClick={(event) => { event.stopPropagation(); event.preventDefault(); window.open(event.currentTarget.href, '_blank'); }}
                             onTouchStart={(event) => event.stopPropagation()}
+                            onTouchEnd={(event) => event.stopPropagation()}
                           >
                             <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                               <rect x="3" y="3" width="18" height="18" rx="5" ry="5" fill="none" stroke="currentColor" strokeWidth="2" />
@@ -625,8 +626,9 @@ function HomePage({
                             target="_blank"
                             rel="noreferrer"
                             aria-label={`${player.name} YouTube`}
-                            onClick={(event) => event.stopPropagation()}
+                            onClick={(event) => { event.stopPropagation(); event.preventDefault(); window.open(event.currentTarget.href, '_blank'); }}
                             onTouchStart={(event) => event.stopPropagation()}
+                            onTouchEnd={(event) => event.stopPropagation()}
                           >
                             <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                               <path d="M21.2 8.2a2.8 2.8 0 0 0-2-2c-1.8-.5-9.4-.5-9.4-.5s-7.6 0-9.4.5a2.8 2.8 0 0 0-2 2A29 29 0 0 0 0 12a29 29 0 0 0 .4 3.8 2.8 2.8 0 0 0 2 2c1.8.5 9.4.5 9.4.5s7.6 0 9.4-.5a2.8 2.8 0 0 0 2-2A29 29 0 0 0 24 12a29 29 0 0 0-.8-3.8ZM9.6 15.3V8.7L15.8 12l-6.2 3.3Z" fill="currentColor" />
