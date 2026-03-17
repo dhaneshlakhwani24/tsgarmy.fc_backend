@@ -8,7 +8,7 @@ const FireBackground = lazy(() => import('./components/FireBackground'))
 const API_URL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:5000' : window.location.origin)
 const ACHIEVEMENTS_API_URL = import.meta.env.VITE_ACHIEVEMENTS_API_URL || ''
 const RESOLVED_ACHIEVEMENTS_API_URL = ACHIEVEMENTS_API_URL || `${API_URL}/api/achievements`
-const PLAYERS_REFRESH_MS = Number(import.meta.env.VITE_PLAYERS_REFRESH_MS || 20000)
+const PLAYERS_REFRESH_MS = Number(import.meta.env.VITE_PLAYERS_REFRESH_MS || 5000)
 const SCHEDULES_REFRESH_MS = Number(import.meta.env.VITE_SCHEDULES_REFRESH_MS || 15000)
 const fallbackAchievementRows = fallbackAchievements.map((summary, index) => ({
   id: `fallback-${index}`,
@@ -1040,6 +1040,13 @@ function App() {
     getPlayers()
     const refreshTimer = window.setInterval(getPlayers, PLAYERS_REFRESH_MS)
 
+    const refreshOnFocus = () => {
+      getPlayers()
+    }
+
+    window.addEventListener('focus', refreshOnFocus)
+    document.addEventListener('visibilitychange', refreshOnFocus)
+
     let sse = null
     try {
       sse = new EventSource(`${API_URL}/api/events`)
@@ -1055,6 +1062,8 @@ function App() {
     return () => {
       isMounted = false
       window.clearInterval(refreshTimer)
+      window.removeEventListener('focus', refreshOnFocus)
+      document.removeEventListener('visibilitychange', refreshOnFocus)
       sse?.close()
     }
   }, [])
