@@ -152,9 +152,12 @@ app.use('/api/player-auth', playerAuthRoutes);
 app.use('/api/feedback', feedbackRoutes);
 
 app.get('/api/events', (req, res) => {
+  res.status(200);
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
   res.setHeader('Connection', 'keep-alive');
+  res.setHeader('Content-Encoding', 'identity');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
   res.flushHeaders();
 
   const send = (payload) => {
@@ -170,13 +173,16 @@ app.get('/api/events', (req, res) => {
     return;
   }
 
-  send('retry: 5000\nevent: connected\ndata: {}\n\n');
+  send('retry: 5000\nevent: connected\ndata: {"ok":true}\n\n');
 
-  const heartbeat = setInterval(() => send(':ping\n\n'), 25000);
-  req.on('close', () => {
+  const heartbeat = setInterval(() => send(':ping\n\n'), 15000);
+  const cleanup = () => {
     clearInterval(heartbeat);
     sseHub.removeClient(res);
-  });
+  };
+
+  req.on('close', cleanup);
+  req.on('error', cleanup);
 });
 
 const startServer = async () => {
